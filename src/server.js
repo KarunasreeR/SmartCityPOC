@@ -38,40 +38,59 @@ const sendToThingsBoard = async (data) => {
   }
 };
 
-const addDataToParking = async () => {
-  const data = {
-    available: Math.floor(Math.random() * 100) + 1,
-    occupied: Math.floor(Math.random() * 100) + 1,
-    non_compliant: Math.floor(Math.random() * 100) + 1,
-  };
+// 🔥 Watch the Parking Collection for Changes
+const watchParkingChanges = async () => {
+  const changeStream = Parking.watch();
+
+  changeStream.on("change", async (change) => {
+    console.log("Database Change Detected:");
+
+    // 🚀 Trigger your job based on change type
+    // if (change.operationType === "insert") {
+    //   console.log("New Parking Data Added:", change.fullDocument);
+    // } else if (change.operationType === "update") {
+    //   console.log("Parking Data Updated:", change.updateDescription);
+    // } else if (change.operationType === "delete") {
+    //   console.log("Parking Data Deleted");
+    // }
+    await sendToThingsBoard(await getLatestParkingData());
+  });
+};
+
+const getLatestParkingData = async () => {
   try {
-    const newParking = new Parking(data);
-    await newParking.save();
-  } catch (e) {
-    console.log(e);
+    const parkingData = await Parking.findOne().sort({ _id: -1 }); // Fetch latest entry
+    if (!parkingData) return {};
+    const result = {
+      available: parkingData.available,
+      occupied: parkingData.occupied,
+      non_compliant: parkingData.non_compliant,
+    };
+    return result;
+  } catch (err) {
+    console.log(`Error while getting parking data: ${e.message}`);
   }
 };
 
-// GET: Fetch parking availability percentages
-app.get("/parking", async (req, res) => {
+app.get("/parking-update", async (req, res) => {
   try {
-    const parkingData = await Parking.findOne().sort({ _id: -1 }); // Fetch latest entry
-    if (!parkingData) return res.status(404).json({ message: "No data found" });
-
-    const total =
-      parkingData.available + parkingData.occupied + parkingData.non_compliant;
-    const response = {
-      available: ((parkingData.available / total) * 100).toFixed(2),
-      occupied: ((parkingData.occupied / total) * 100).toFixed(2),
-      non_compliant: ((parkingData.non_compliant / total) * 100).toFixed(2),
-    };
-    addDataToParking();
-    sendToThingsBoard(response);
-    res.json(response);
+    const available = Math.floor(Math.random() * 100);
+    const occupied = Math.floor(Math.random() * (100 - available));
+    const non_compliant = 100 - (available + occupied);
+    const data = { available, occupied, non_compliant };
+    const newParking = new Parking(data);
+    await newParking.save();
+    res.json({
+      message: "Parking percentages added successfully",
+      data: newParking,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
+// Start Watching
+watchParkingChanges();
 
 // Start Server
 const PORT = process.env.PORT || 3000;
